@@ -122,6 +122,14 @@ export async function executeSlashCommand(
       return await executeSteer(client, sessionKey, args, context);
     case "redirect":
       return await executeRedirect(client, sessionKey, args, context);
+    case "status":
+      return await executeStatus(client, sessionKey, context);
+    case "models":
+      return await executeModels(client, context);
+    case "subagents":
+      return await executeSubagents(client);
+    case "reasoning":
+      return await executeThink(client, sessionKey, args);
     default:
       return { content: `Unknown command: \`/${commandName}\`` };
   }
@@ -417,6 +425,103 @@ async function executeAgents(client: GatewayBrowserClient): Promise<SlashCommand
     return { content: lines.join("\n") };
   } catch (err) {
     return { content: `Failed to list agents: ${String(err)}` };
+  }
+}
+
+async function executeStatus(
+  client: GatewayBrowserClient,
+  sessionKey: string,
+  context: SlashCommandContext,
+): Promise<SlashCommandResult> {
+  try {
+    const [sessions, models] = await Promise.all([
+      client.request<SessionsListResult>("sessions.list", {}),
+      context.chatModelCatalog?.length
+        ? Promise.resolve(context.chatModelCatalog)
+        : loadModelCatalog(client, { allowFailure: true }),
+    ]);
+    const session = resolveCurrentSession(sessions, sessionKey);
+    const lines: string[] = ["**Session Status**\n"];
+    lines.push(`Session: \`${sessionKey}\``);
+    if (session) {
+      const model = session.model || sessions?.defaults?.model || "default";
+      const provider = session.modelProvider || sessions?.defaults?.modelProvider || "";
+      lines.push(`Model: \`${provider ? `${provider}/${model}` : model}\``);
+      const input = session.inputTokens ?? 0;
+      const output = session.outputTokens ?? 0;
+      const total = session.totalTokens ?? input + output;
+      const ctx = session.contextTokens ?? 0;
+      if (total > 0) {
+        lines.push(
+          `Tokens: **${fmtTokens(total)}** (in: ${fmtTokens(input)}, out: ${fmtTokens(output)})`,
+        );
+      }
+      if (ctx > 0) {
+        const pct = Math.round((input / ctx) * 100);
+        lines.push(`Context: **${pct}%** of ${fmtTokens(ctx)}`);
+      }
+      if (session.thinkingLevel) {
+        lines.push(`Thinking: \`${session.thinkingLevel}\``);
+      }
+    }
+    if (models.length > 0) {
+      lines.push(
+        `\nModels: ${models
+          .slice(0, 5)
+          .map((m) => `\`${m.id}\``)
+          .join(", ")}${models.length > 5 ? ` +${models.length - 5} more` : ""}`,
+      );
+    }
+    return { content: lines.join("\n") };
+  } catch (err) {
+    return { content: `Failed to get status: ${String(err)}` };
+  }
+}
+
+async function executeModels(
+  client: GatewayBrowserClient,
+  context: SlashCommandContext,
+): Promise<SlashCommandResult> {
+  try {
+    const models = context.chatModelCatalog?.length
+      ? context.chatModelCatalog
+      : await loadModelCatalog(client);
+    if (models.length === 0) {
+      return { content: "No models available." };
+    }
+    const grouped: Record<string, string[]> = {};
+    for (const m of models) {
+      const p = m.id.split("/")[0] ?? "other";
+      (grouped[p] ??= []).push(m.id);
+    }
+    const lines: string[] = [`**Available Models** (${models.length})\n`];
+    for (const [p, ids] of Object.entries(grouped)) {
+      lines.push(`**${p}**`);
+      for (const id of ids) {
+        lines.push(`- \`${id}\``);
+      }
+    }
+    return { content: lines.join("\n") };
+  } catch (err) {
+    return { content: `Failed to list models: ${String(err)}` };
+  }
+}
+
+async function executeSubagents(client: GatewayBrowserClient): Promise<SlashCommandResult> {
+  try {
+    const sessions = await client.request<SessionsListResult>("sessions.list", {});
+    const subs = (sessions?.sessions ?? []).filter((s) => isSubagentSessionKey(s.key));
+    if (subs.length === 0) {
+      return { content: "No active sub-agent sessions." };
+    }
+    const lines: string[] = [`**Sub-agents** (${subs.length})\n`];
+    for (const s of subs) {
+      const label = s.label ?? s.displayName ?? s.key;
+      lines.push(`- \`${s.key}\` — ${label} [${s.status ?? "unknown"}]`);
+    }
+    return { content: lines.join("\n") };
+  } catch (err) {
+    return { content: `Failed to list sub-agents: ${String(err)}` };
   }
 }
 

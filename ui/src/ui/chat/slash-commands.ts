@@ -91,6 +91,10 @@ const LOCAL_COMMANDS = new Set([
   "kill",
   "steer",
   "redirect",
+  "status",
+  "models",
+  "subagents",
+  "reasoning",
 ]);
 
 const UI_ONLY_COMMANDS: SlashCommandDef[] = [

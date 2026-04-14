@@ -1385,7 +1385,7 @@
     "cli-highlight": "^2.1.11",
     "commander": "^14.0.3",
     "croner": "^10.0.1",
-    "discord-api-types": "^0.38.45",
+    "discord-api-types": "^0.38.46",
     "dotenv": "^17.4.1",
     "express": "^5.2.1",
     "file-type": "22.0.1",
